@@ -25,9 +25,7 @@ If you find LPLD project useuful, please acknowledge it by citing the following 
 
 ### ADDITIONAL MATERIALS
 [<a href="http://resources.mpi-inf.mpg.de/hdr/metric/cadik13learning.pdf">Paper (pdf)</a>]
-
 [<a href="http://resources.mpi-inf.mpg.de/hdr/metric/cadik13learning_supp.html">Supplementary Material (html)</a>]
-
 [<a href="http://resources.mpi-inf.mpg.de/hdr/metric/cadik13learning_presentation.pdf">Presentation slides (pdf)</a>] 
 
 
