@@ -1,6 +1,7 @@
 # LPLD - Learning to Predict Localized Distortions in Rendered Images
 
 2013 - 2017, Martin Cadik (cadikm@centrum.cz, http://cadik.posvete.cz/)
+
 developers: Martin Cadik, Robert Herzog, Rafal Mantiuk, Peter Harman, Lukas Teuer
 
 
