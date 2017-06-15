@@ -2,7 +2,7 @@
 
 2013 - 2017, Martin Cadik (cadikm@centrum.cz, http://cadik.posvete.cz/)
 
-developers: Martin Cadik, Robert Herzog, Rafal Mantiuk, Peter Harman, Lukas Teuer
+developers: Martin Cadik, Robert Herzog, Peter Harman, Lukas Teuer
 
 
 In this work, we present a new data-driven full-reference image quality metric which outperforms current state-of-the-art metrics. The metric was trained on subjective ground truth data combining two publicly available datasets. For the sake of completeness we create a new testing synthetic dataset including experimentally measured subjective distortion maps. Finally, using the same machine-learning framework we optimize the parameters of popular existing metrics. 
