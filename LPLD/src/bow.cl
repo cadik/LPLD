@@ -209,7 +209,7 @@ __kernel void bow(
 #define NEIGHBOR_CONSTANT 16
 
 __kernel void bow2(
-	const __global float * expanded_Img,
+	const __global real_t * expanded_Img,
 	const __global real_t * H,
 	__constant real_t * gaussian,
 	__global real_t * output

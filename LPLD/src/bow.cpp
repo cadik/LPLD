@@ -6,7 +6,6 @@ namespace dip {
 
 		try {
 			initCL();
-
 			if (m_dev_doubleSupport) {
 				private_compute<double>(CV_64FC1);
 				//standard_compute();
@@ -202,7 +201,6 @@ namespace dip {
         return descriptor;
     }
 
-
     double BOW::getVariance(cv::Mat &inputMat, double meanVal) {
         size_t numOfItems = inputMat.rows * inputMat.cols;
         double *input_Ptr = (double *) inputMat.data;
@@ -215,9 +213,6 @@ namespace dip {
 
         return temp/numOfItems;
     }
-
-
-
 
 	void BOW::initCL() throw (std::runtime_error, cl::Error) {
 		std::vector<cl::Platform> platformsList;
@@ -250,7 +245,7 @@ namespace dip {
 #ifdef _MSC_VER
 				std::ifstream sourceFile("src\\" + m_clSrcFileName);
 #else
-				std::ifstream sourceFile("cl/" + m_clSrcFileName);
+				std::ifstream sourceFile("src/" + m_clSrcFileName);
 #endif
 
 				std::string sourceCode(std::istreambuf_iterator<char>(sourceFile), \
@@ -289,19 +284,20 @@ namespace dip {
 		m_lumTestImg = GPLib::get_luminance(m_test_img);
 		m_lumRefImg = GPLib::get_luminance(m_ref_img);
 
-		m_lumTestImg.convertTo(m_test_img, cv_mat_type);
-		m_lumRefImg.convertTo(m_ref_img, cv_mat_type);
+		m_lumTestImg.convertTo(m_lumTestImg, cv_mat_type);
+		m_lumRefImg.convertTo(m_lumRefImg, cv_mat_type);
 
 		m_diff = m_lumTestImg - m_lumRefImg;
+		//m_diff.convertTo(m_diff, cv_mat_type);
 
-		double maxLen = static_cast<double>(m_diff.rows >= m_diff.cols ? m_diff.rows : m_diff.cols);
-		double downSampleRatio = 0.0;
+		T maxLen = static_cast<T>(m_diff.rows >= m_diff.cols ? m_diff.rows : m_diff.cols);
+		/**T downSampleRatio = 0.0;
 		if (maxLen > m_params.getCanonicalImgRes())
 			downSampleRatio = m_params.getCanonicalImgRes() / maxLen;
 		else
 			downSampleRatio = maxLen / m_params.getCanonicalImgRes();
 
-		cv::resize(m_diff, m_diff, cv::Size(), downSampleRatio, downSampleRatio, CV_INTER_LINEAR);
+		cv::resize(m_diff, m_diff, cv::Size(), downSampleRatio, downSampleRatio, CV_INTER_LINEAR);**/
 
 
 		unsigned int stride = m_params.getStride();
@@ -309,41 +305,38 @@ namespace dip {
 		unsigned int nCols = (unsigned int)(m_diff.cols / stride);
 		int neighborRadius = std::max((int)(m_params.getPatchSize() / 2), 16);
 
-		cv::Mat artifactClusterIndices = cv::Mat::zeros(nRows, nCols, CV_64FC1);
+		cv::Mat artifactClusterIndices = cv::Mat::zeros(nRows, nCols, cv_mat_type);
 		double minVal, maxVal;
 
 		cv::Mat dictionary = m_params.getDictionary();
+		
 		cv::transpose(dictionary, dictionary);
+		dictionary.convertTo(dictionary, cv_mat_type);
 		cv::Point minLoc;
 
 		int globalCycles = nRows * nCols;
 
+		int M = m_diff.rows;
+		int N = m_diff.cols;
 
-		int M = m_image_height;
-		int N = m_image_width;
-
-
-		size_t deviceDataSize = M * N * sizeof(T);
+		size_t deviceDataSize = M * N;
 		std::vector<std::pair<int, int>> tat = m_params.getDCTZigZagOrder();
 
 		int *zz_order = (int *)calloc(512, sizeof(int));
 		size_t zz_size = 512 * sizeof(int);
 		for (int i = 0; i < tat.size(); i++) {
-
 			zz_order[i * 2] = tat[i].first;
 			zz_order[i * 2 + 1] = tat[i].second;
 		}
 
 		//cl::Buffer test_Buffer = cl::Buffer(m_context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, deviceDataSize, (T *)m_test_img.data);
 		//cl::Buffer reference_Buffer = cl::Buffer(m_context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, deviceDataSize, (T *)m_ref_img.data);
-		cl::Buffer diff_Buffer = cl::Buffer(m_context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, deviceDataSize, (T *)m_diff.data);
+		cl::Buffer diff_Buffer = cl::Buffer(m_context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, deviceDataSize * sizeof(T), (T *)m_diff.data);
 		cl::Buffer dictionary_Buffer = cl::Buffer(m_context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, dictionary.cols * dictionary.rows * sizeof(T), (T *)dictionary.data);
 		cl::Buffer zigzag_Buffer = cl::Buffer(m_context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, zz_size, zz_order);
 		cl::Buffer out_Buffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, globalCycles * sizeof(T));
 
-
 		try {
-
 			std::ostringstream tmpStringStream;
 			tmpStringStream << "-D IMAGE_W=" << nCols << " " \
 				<< "-D IMAGE_H=" << nRows << " " \
@@ -358,11 +351,7 @@ namespace dip {
 
 			std::string compilerOptions = tmpStringStream.str();
 
-			//             std::cout << compilerOptions << std::endl;
-
 			m_program.build(m_devicesVector, compilerOptions.c_str());
-
-
 
 			cl::Kernel kernel = cl::Kernel(m_program, "bow");
 
@@ -416,10 +405,10 @@ namespace dip {
 		H_vec = std::vector<cv::Mat>(32);//reserve(nClusters)
 
 		for (std::vector<cv::Mat>::iterator it = H_vec.begin(); it != H_vec.end(); ++it)
-			(*it) = cv::Mat::zeros(nRows, nCols, CV_64FC1);
+			(*it) = cv::Mat::zeros(nRows, nCols, cv_mat_type);
 
-		cv::Mat gaussianKernel = cv::Mat(1, neighborRadius * 2 + 1, CV_64FC1);
-		double *gauss_Ptr = (double *)gaussianKernel.data;
+		cv::Mat gaussianKernel = cv::Mat(1, neighborRadius * 2 + 1, cv_mat_type);
+		T *gauss_Ptr = (T *)gaussianKernel.data;
 
 		for (int i = -neighborRadius; i <= neighborRadius; i++) {
 			*gauss_Ptr++ = std::exp((-(i*i)) / std::pow(0.5 * neighborRadius, 2.0));
@@ -427,40 +416,31 @@ namespace dip {
 
 		gaussianKernel = gaussianKernel.t() * gaussianKernel;
 
-		cv::Mat expandedImg = cv::Mat::zeros(2 * neighborRadius + nRows, 2 * neighborRadius + nCols, CV_32FC1);
+		cv::Mat expandedImg = cv::Mat::zeros(2 * neighborRadius + nRows, 2 * neighborRadius + nCols, cv_mat_type);
 		artifactClusterIndices.copyTo(expandedImg(cv::Rect(neighborRadius, neighborRadius, nCols, nRows)));
 		
 
-
-		cv::Mat H_data = cv::Mat::zeros(32 * nRows, nCols, CV_64FC1);
-
-
+		cv::Mat H_data = cv::Mat::zeros(32 * nRows, nCols, cv_mat_type);
 
 		size_t bufferSize = (2 * neighborRadius + nRows) * (2 * neighborRadius + nCols);
 		size_t H_vec_size = 32 * nRows * nCols;
 		size_t gaussianBufferSize = (neighborRadius * 2 + 1) * (neighborRadius * 2 + 1);
 		size_t outputBufferSize;
 
-		cl::Buffer expanded_Buffer = cl::Buffer(m_context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, bufferSize * sizeof(float), (float *)expandedImg.data);
+		cl::Buffer expanded_Buffer = cl::Buffer(m_context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, bufferSize * sizeof(T), (T *)expandedImg.data);
 		cl::Buffer H_Buffer = cl::Buffer(m_context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, H_vec_size * sizeof(T), (T *)H_data.data);
 		cl::Buffer gaussian_Buffer = cl::Buffer(m_context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, gaussianBufferSize * sizeof(T), (T *)gaussianKernel.data);
 		cl::Buffer out_Buffer2 = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, H_vec_size * sizeof(T));
 
-
-
 		try {
-			
-
 			cl::Kernel kernel = cl::Kernel(m_program, "bow2");
 
 			// Set the kernel arguments
-
 			kernel.setArg<cl::Buffer>(0, expanded_Buffer);
 			kernel.setArg<cl::Buffer>(1, H_Buffer);
 			kernel.setArg<cl::Buffer>(2, gaussian_Buffer);
 			kernel.setArg<cl::Buffer>(3, out_Buffer2);
 
-			//cl::NDRange localSize = cl::NDRange(wgWidth, wgHeight);
 			cl::NDRange globaltime = cl::NDRange(nCols, nRows);
 
 			// Execute the kernel

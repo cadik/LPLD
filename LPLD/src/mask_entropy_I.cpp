@@ -49,7 +49,7 @@ namespace dip {
 #ifdef _MSC_VER
 				std::ifstream sourceFile("src\\" + m_clSrcFileName);
 #else
-				std::ifstream sourceFile("cl/" + m_clSrcFileName);
+				std::ifstream sourceFile("src/" + m_clSrcFileName);
 #endif
 
 				std::string sourceCode(std::istreambuf_iterator<char>(sourceFile), \
@@ -80,91 +80,167 @@ namespace dip {
 	}
 
 
-    void MASK_ENT_I::compute() throw (std::runtime_error) {
-        m_result = cv::Mat::zeros(m_test_img.rows, m_test_img.cols, CV_64FC1);
-        unsigned int windowSize = 3;
+	void MASK_ENT_I::compute() throw (std::runtime_error) {
+		
+		unsigned int windowSize = 3;
 
-        m_test_img = GPLib::get_luminance(m_test_img);
-        m_ref_img = GPLib::get_luminance(m_ref_img);
+		m_test_img = GPLib::get_luminance(m_test_img);
+		m_ref_img = GPLib::get_luminance(m_ref_img);
 
-        cv::normalize(m_ref_img, m_ref_img, 0.0, 255.0, cv::NORM_MINMAX, CV_32SC1);
-        cv::normalize(m_test_img, m_test_img, 0.0, 255.0, cv::NORM_MINMAX, CV_32SC1);
+		cv::normalize(m_ref_img, m_ref_img, 0.0, 255.0, cv::NORM_MINMAX, CV_32SC1);
+		cv::normalize(m_test_img, m_test_img, 0.0, 255.0, cv::NORM_MINMAX, CV_32SC1);
 
-        cv::Mat refImgEntropy(m_ref_img.rows, m_ref_img.cols, CV_64FC1);
-        cv::Mat testImgEntropy(m_test_img.rows, m_test_img.cols, CV_64FC1);
 
 		initCL();
+
+		int mat_type;
+		if (m_dev_doubleSupport) {
+			mat_type = CV_64FC1;
+		}
+		else {
+			mat_type = CV_32FC1;
+		}
+
+		m_result = cv::Mat::zeros(m_test_img.rows, m_test_img.cols, mat_type);
+		cv::Mat refImgEntropy(m_ref_img.rows, m_ref_img.cols, mat_type);
+		cv::Mat testImgEntropy(m_test_img.rows, m_test_img.cols, mat_type);
+
+
 
 		computeEntropy_GPU(m_ref_img, refImgEntropy, windowSize);
 		computeEntropy_GPU(cv::abs(m_test_img - m_ref_img), testImgEntropy, windowSize);
 
-        //computeEntropy(m_ref_img, refImgEntropy, windowSize);
-        //computeEntropy(cv::abs(m_test_img - m_ref_img), testImgEntropy, windowSize);
-		
-        double *refImgEntrPtr = (double *) refImgEntropy.data;
-        double *testImgEntrPtr = (double *) testImgEntropy.data;
-        double *resultPtr = (double *) m_result.data;
+		//computeEntropy(m_ref_img, refImgEntropy, windowSize);
+		//computeEntropy(cv::abs(m_test_img - m_ref_img), testImgEntropy, windowSize);
+		if (m_dev_doubleSupport) {
+			double *refImgEntrPtr = (double *)refImgEntropy.data;
+			double *testImgEntrPtr = (double *)testImgEntropy.data;
+			double *resultPtr = (double *)m_result.data;
 
-        for (int i = 0; i < m_result.rows * m_result.cols; i++) {
-            if (*refImgEntrPtr != 0.0) {
-                *resultPtr = *testImgEntrPtr / *refImgEntrPtr;
-            }
+			for (int i = 0; i < m_result.rows * m_result.cols; i++) {
+				if (*refImgEntrPtr != 0.0) {
+					*resultPtr = *testImgEntrPtr / *refImgEntrPtr;
+				}
 
-            resultPtr++;
-            testImgEntrPtr++;
-            refImgEntrPtr++;
-        }
+				resultPtr++;
+				testImgEntrPtr++;
+				refImgEntrPtr++;
+			}
+		}
+		else {
+			float *refImgEntrPtr = (float *)refImgEntropy.data;
+			float *testImgEntrPtr = (float *)testImgEntropy.data;
+			float *resultPtr = (float *)m_result.data;
+
+			for (int i = 0; i < m_result.rows * m_result.cols; i++) {
+				if (*refImgEntrPtr != 0.0) {
+					*resultPtr = *testImgEntrPtr / *refImgEntrPtr;
+				}
+
+				resultPtr++;
+				testImgEntrPtr++;
+				refImgEntrPtr++;
+			}
+		}
     }
 
 	void MASK_ENT_I::computeEntropy_GPU(const cv::Mat &image, cv::Mat &dst, unsigned int windowSize) {
 		cv::Mat padded_srcImg;
 		double sum = 0.0;
 		float histogramVals[256] = { 0.0 };
+		if (m_dev_doubleSupport) {
+			int cycles = image.rows * image.cols;
+			int cols = image.cols;
+			int rows = image.rows;
 
-		int cycles = image.rows * image.cols;
-		int cols = image.cols;
-		int rows = image.rows;
+			cv::copyMakeBorder(image, padded_srcImg, 1, 1, 1, 1, cv::BORDER_CONSTANT);
 
-		cv::copyMakeBorder(image, padded_srcImg, 1, 1, 1, 1, cv::BORDER_CONSTANT);
+			int sizeofImage = padded_srcImg.rows * padded_srcImg.cols;
+			padded_srcImg.convertTo(padded_srcImg, CV_64FC1);
 
-		int sizeofImage = padded_srcImg.rows * padded_srcImg.cols;
-		padded_srcImg.convertTo(padded_srcImg, CV_64FC1);
+			cl::Buffer image_Buffer = cl::Buffer(m_context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, sizeofImage * sizeof(double), (double *)padded_srcImg.data);
+			cl::Buffer out_Buffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, cycles * sizeof(double));
 
-		cl::Buffer image_Buffer = cl::Buffer(m_context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, sizeofImage * sizeof(double), (double *)padded_srcImg.data);
-		cl::Buffer out_Buffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, cycles * sizeof(double));
+			try {
+				std::ostringstream tmpStringStream;
+				tmpStringStream << "-D WINDOWSIZE=" << windowSize << " " \
+					<< "-D PADDED_ROWS=" << padded_srcImg.rows << " " \
+					<< "-D PADDED_COLS=" << padded_srcImg.cols << " " \
+					<< "-D ROWS=" << image.rows << " " \
+					<< "-D COLS=" << image.cols;
 
-		try {
-			std::ostringstream tmpStringStream;
-			tmpStringStream << "-D WINDOWSIZE=" << windowSize << " " \
-				<< "-D PADDED_ROWS=" << padded_srcImg.rows << " " \
-				<< "-D PADDED_COLS=" << padded_srcImg.cols << " " \
-				<< "-D ROWS=" << image.rows << " " \
-				<< "-D COLS=" << image.cols;
+				std::string compilerOptions = tmpStringStream.str();
+				m_program.build(m_devicesVector, compilerOptions.c_str());
 
-			std::string compilerOptions = tmpStringStream.str();
-			m_program.build(m_devicesVector, compilerOptions.c_str());
-
-			cl::Kernel kernel = cl::Kernel(m_program, "mask_entropy");
+				cl::Kernel kernel = cl::Kernel(m_program, "mask_entropy");
 
 
-			kernel.setArg<cl::Buffer>(0, image_Buffer);
-			kernel.setArg<cl::Buffer>(1, out_Buffer);
+				kernel.setArg<cl::Buffer>(0, image_Buffer);
+				kernel.setArg<cl::Buffer>(1, out_Buffer);
 
-			cl::NDRange globalSize = cl::NDRange(cols, rows);
+				cl::NDRange globalSize = cl::NDRange(cols, rows);
 
-			m_queue.enqueueNDRangeKernel(kernel, cl::NullRange, globalSize);
-			m_queue.finish();
+				m_queue.enqueueNDRangeKernel(kernel, cl::NullRange, globalSize);
+				m_queue.finish();
 
-			//cv::Mat outMat(rows, cols, CV_64FC1);
-			m_queue.enqueueReadBuffer(out_Buffer, CL_TRUE, 0, cycles * sizeof(double), dst.data);
-			//GPLib::writeCvMatToFile<double>(dst, "matrixes/matrix.yml", true);
-			
-		}
-		catch (cl::Error error) {
-			if (error.err() == CL_BUILD_PROGRAM_FAILURE) {
-				std::cout << "Build log:" << std::endl << m_program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(m_devicesVector[0]) << std::endl;
+				//cv::Mat outMat(rows, cols, CV_64FC1);
+				m_queue.enqueueReadBuffer(out_Buffer, CL_TRUE, 0, cycles * sizeof(double), dst.data);
+				//GPLib::writeCvMatToFile<double>(dst, "matrixes/matrix.yml", true);
+
 			}
-			throw;
+			catch (cl::Error error) {
+				if (error.err() == CL_BUILD_PROGRAM_FAILURE) {
+					std::cout << "Build log:" << std::endl << m_program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(m_devicesVector[0]) << std::endl;
+				}
+				throw;
+			}
+		}
+		else {
+			int cycles = image.rows * image.cols;
+			int cols = image.cols;
+			int rows = image.rows;
+
+			cv::copyMakeBorder(image, padded_srcImg, 1, 1, 1, 1, cv::BORDER_CONSTANT);
+
+			int sizeofImage = padded_srcImg.rows * padded_srcImg.cols;
+			padded_srcImg.convertTo(padded_srcImg, CV_32FC1);
+
+			cl::Buffer image_Buffer = cl::Buffer(m_context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, sizeofImage * sizeof(float), (float *)padded_srcImg.data);
+			cl::Buffer out_Buffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, cycles * sizeof(float));
+
+			try {
+				std::ostringstream tmpStringStream;
+				tmpStringStream << "-D WINDOWSIZE=" << windowSize << " " \
+					<< "-D PADDED_ROWS=" << padded_srcImg.rows << " " \
+					<< "-D PADDED_COLS=" << padded_srcImg.cols << " " \
+					<< "-D ROWS=" << image.rows << " " \
+					<< "-D COLS=" << image.cols;
+
+				std::string compilerOptions = tmpStringStream.str();
+				m_program.build(m_devicesVector, compilerOptions.c_str());
+
+				cl::Kernel kernel = cl::Kernel(m_program, "mask_entropy");
+
+
+				kernel.setArg<cl::Buffer>(0, image_Buffer);
+				kernel.setArg<cl::Buffer>(1, out_Buffer);
+
+				cl::NDRange globalSize = cl::NDRange(cols, rows);
+
+				m_queue.enqueueNDRangeKernel(kernel, cl::NullRange, globalSize);
+				m_queue.finish();
+
+				//cv::Mat outMat(rows, cols, CV_64FC1);
+				m_queue.enqueueReadBuffer(out_Buffer, CL_TRUE, 0, cycles * sizeof(float), dst.data);
+				//GPLib::writeCvMatToFile<double>(dst, "matrixes/matrix.yml", true);
+
+			}
+			catch (cl::Error error) {
+				if (error.err() == CL_BUILD_PROGRAM_FAILURE) {
+					std::cout << "Build log:" << std::endl << m_program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(m_devicesVector[0]) << std::endl;
+				}
+				throw;
+			}
 		}
 	}
 
