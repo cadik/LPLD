@@ -91,35 +91,35 @@ int main(int argc, char **argv)
         cv::Mat ref_Mat = cv::imread(reference_img, CV_LOAD_IMAGE_COLOR);
         cv::Mat test_Mat = cv::imread(test_img, CV_LOAD_IMAGE_COLOR);
 
-        MASK_ENT_I maskE_I_Method(test_Mat, ref_Mat, 0, CL_DEVICE_TYPE_CPU, 0);
+        MASK_ENT_I maskE_I_Method(test_Mat, ref_Mat, 0, CL_DEVICE_TYPE_GPU, 0);
         SPYR_DIST spyrDist_Method(test_Mat, ref_Mat);
-        MASK_ENT_MULTI maskE_multiple_Method(test_Mat, ref_Mat, 0, 0, CL_DEVICE_TYPE_CPU, 0);
+        MASK_ENT_MULTI maskE_multiple_Method(test_Mat, ref_Mat, 0, 0, CL_DEVICE_TYPE_GPU, 0);
         HARRIS harris_Method(test_Mat, ref_Mat, 5);
-        SSIM_LUM ssim_lum_Method(test_Mat, ref_Mat, 0, CL_DEVICE_TYPE_CPU, 0);
-        DIFF diff_Method(test_Mat, ref_Mat, 0, CL_DEVICE_TYPE_CPU, 0);
-        Grad_Dist gradDist_Method(test_Mat, ref_Mat, 0, CL_DEVICE_TYPE_CPU, 0);
-        SSIM_STRUCT ssim_struct_Method(test_Mat, ref_Mat, 0, CL_DEVICE_TYPE_CPU, 0);
+        SSIM_LUM ssim_lum_Method(test_Mat, ref_Mat, 0, CL_DEVICE_TYPE_GPU, 0);
+        DIFF diff_Method(test_Mat, ref_Mat, 0, CL_DEVICE_TYPE_GPU, 0);
+        Grad_Dist gradDist_Method(test_Mat, ref_Mat, 0, CL_DEVICE_TYPE_GPU, 0);
+        SSIM_STRUCT ssim_struct_Method(test_Mat, ref_Mat, 0, CL_DEVICE_TYPE_GPU, 0);
         HOG9 hog9_Method(test_Mat, ref_Mat);
-        HDRVDP_BAND hdrvdpBand_Method(test_Mat, ref_Mat, 4, 0, CL_DEVICE_TYPE_CPU, 0);
+        HDRVDP_BAND hdrvdpBand_Method(test_Mat, ref_Mat, 4, 0, CL_DEVICE_TYPE_GPU, 0);
         
         BOW_PARAMS params("ARTIFACT_DICTIONARY.csv", 16);
-        BOW bow_Method(test_Mat, ref_Mat, params, 4, 0, CL_DEVICE_TYPE_CPU, 0);
+        BOW bow_Method(test_Mat, ref_Mat, params, 4, 0, CL_DEVICE_TYPE_GPU, 0);
 		///*
-        //methods.push_back(Context(maskE_I_Method)); //3.7 ok
-        //methods.push_back(Context(spyrDist_Method));//4.8 nic
-        //methods.push_back(Context(maskE_multiple_Method)); //3.8 divne
-        //methods.push_back(Context(harris_Method));  //3 nic
-        //methods.push_back(Context(ssim_lum_Method));	//1.4 huh
-        //methods.push_back(Context(ssim_struct_Method)); //2.7
-        //methods.push_back(Context(diff_Method));	//nothing
-        //methods.push_back(Context(gradDist_Method));//5.2
-        //methods.push_back(Context(hog9_Method)); //0,3
+        methods.push_back(Context(maskE_I_Method)); //3.7 ok
+        methods.push_back(Context(spyrDist_Method));//4.8 nic
+        methods.push_back(Context(maskE_multiple_Method)); //3.8 divne
+		methods.push_back(Context(harris_Method));  //3 nic
+        methods.push_back(Context(ssim_lum_Method));	//1.4 huh
+        methods.push_back(Context(ssim_struct_Method)); //2.7
+		methods.push_back(Context(diff_Method));	//nothing
+		methods.push_back(Context(gradDist_Method));//5.2
+		methods.push_back(Context(hog9_Method)); //0,3
         methods.push_back(Context(hdrvdpBand_Method));//*/
-        methods.push_back(Context(bow_Method)); // too much
+		methods.push_back(Context(bow_Method)); // too much
 
 
 #ifdef _MSC_VER
-        const char *decisionForestPath = "decision_forest\\";
+        const char *decisionForestPath = "decision_forest2\\";
 #else
         const char *decisionForestPath = "decision_forest/";
 #endif
@@ -129,22 +129,25 @@ int main(int argc, char **argv)
         std::vector<cv::Mat> methodsResults;
 		for (int i = 0; i < methods.size(); i++) {
 			methods[i].compute();
- 			methodsResults.push_back(methods.at(i).getResult());
+			methodsResults.push_back(methods.at(i).getResult());
+			methodsResults[i].convertTo(methodsResults[i], CV_64FC1);
 			auto img = methods.at(i).getResult();
-			cv::imshow("result", methods.at(i).getResult());
 
-			
+			//cv::normalize(img, img, 0.0, 255.0, cv::NORM_MINMAX, CV_64FC1);
+			//cv::imwrite("a.png", img);
+			//cv::imshow("result", img);
 			//GPLib::writeCvMatToFile<double>(img, "matrixes/matrix.yml", true);
-			cv::waitKey();
+			//cv::waitKey();
 		}
       
 		
 		DecisionForest forest(decisionForestPath);
-
         cv::Mat result = forest.predict(methodsResults);
 
-        cv::imshow("result", result);
-        cv::waitKey();
+		cv::normalize(result, result, 0.0, 255.0, cv::NORM_MINMAX, CV_64FC1);
+		cv::imwrite("result_12to10.png", result);
+		
+
 
         //winPresEnter();
 

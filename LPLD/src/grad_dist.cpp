@@ -48,7 +48,7 @@ namespace dip {
 #ifdef _MSC_VER
 				std::ifstream sourceFile("src\\" + m_clSrcFileName);
 #else
-				std::ifstream sourceFile("cl/" + m_clSrcFileName);
+				std::ifstream sourceFile("src/" + m_clSrcFileName);
 #endif
 
 				std::string sourceCode(std::istreambuf_iterator<char>(sourceFile), \
@@ -79,7 +79,7 @@ namespace dip {
 	}
 
     void Grad_Dist::compute() throw (std::runtime_error) {
-        m_result = cv::Mat::zeros(m_ref_img.rows, m_ref_img.cols, CV_64FC1);
+        
         
         m_test_img =  GPLib::get_luminance(m_test_img);
         m_ref_img =  GPLib::get_luminance(m_ref_img);
@@ -87,11 +87,16 @@ namespace dip {
 		std::vector<cv::Mat> T;
 		std::vector<cv::Mat> R;
 
-		std::vector<cv::Mat> T2;
-		std::vector<cv::Mat> R2;
-
 		initCL();
+		int mat_type;
+		if (m_dev_doubleSupport) {
+			mat_type = CV_64FC1;
+		}
+		else {
+			mat_type = CV_32FC1;
+		}
 
+		m_result = cv::Mat::zeros(m_ref_img.rows, m_ref_img.cols, mat_type);
 		vis_dist_GPU(m_test_img, T, 8, 8);
 		vis_dist_GPU(m_ref_img, R, 8, 8);
 
@@ -112,11 +117,9 @@ namespace dip {
     }
 
 	void Grad_Dist::vis_dist_GPU(cv::Mat &image, std::vector<cv::Mat> &dst, unsigned int rowBlock, unsigned int colBlock) {
-		double median;
 		cv::Mat result;
 		cv::Mat gradients[2];
 		cv::Scalar meanValue;
-		std::vector<double> meanValuesVec;
 
 		gradients[0] = gradientX(image, 1.0);
 		gradients[1] = gradientY(image, 1.0);
@@ -131,48 +134,99 @@ namespace dip {
 		int outSize = sz_pad *sz_pad2;
 		int gradSize = gradients[0].rows * gradients[0].cols;
 
-		cl::Buffer grad1_Buffer = cl::Buffer(m_context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, gradSize * sizeof(double), (double *)gradients[0].data);
-		cl::Buffer grad2_Buffer = cl::Buffer(m_context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, gradSize * sizeof(double), (double *)gradients[1].data);
-		cl::Buffer out1_Buffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, outSize * sizeof(double));
-		cl::Buffer out2_Buffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, outSize * sizeof(double));
+		if (m_dev_doubleSupport) {
 
-		try {
-			std::ostringstream tmpStringStream;
-			tmpStringStream << "-D COLBLOCK=" << colBlock << " " \
-				<< "-D ROWBLOCK=" << rowBlock << " " \
-				<< "-D ROWS=" << gradients[0].rows << " " \
-				<< "-D COLS=" << gradients[0].cols;
+			cl::Buffer grad1_Buffer = cl::Buffer(m_context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, gradSize * sizeof(double), (double *)gradients[0].data);
+			cl::Buffer grad2_Buffer = cl::Buffer(m_context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, gradSize * sizeof(double), (double *)gradients[1].data);
+			cl::Buffer out1_Buffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, outSize * sizeof(double));
+			cl::Buffer out2_Buffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, outSize * sizeof(double));
 
-			std::string compilerOptions = tmpStringStream.str();
-			m_program.build(m_devicesVector, compilerOptions.c_str());
+			try {
+				std::ostringstream tmpStringStream;
+				tmpStringStream << "-D COLBLOCK=" << colBlock << " " \
+					<< "-D ROWBLOCK=" << rowBlock << " " \
+					<< "-D ROWS=" << gradients[0].rows << " " \
+					<< "-D COLS=" << gradients[0].cols;
 
-			cl::Kernel kernel = cl::Kernel(m_program, "grad_dist");
+				std::string compilerOptions = tmpStringStream.str();
+				m_program.build(m_devicesVector, compilerOptions.c_str());
+
+				cl::Kernel kernel = cl::Kernel(m_program, "grad_dist");
 
 
-			kernel.setArg<cl::Buffer>(0, grad1_Buffer);
-			kernel.setArg<cl::Buffer>(1, grad2_Buffer);
-			kernel.setArg<cl::Buffer>(2, out1_Buffer);
-			kernel.setArg<cl::Buffer>(3, out2_Buffer);
+				kernel.setArg<cl::Buffer>(0, grad1_Buffer);
+				kernel.setArg<cl::Buffer>(1, grad2_Buffer);
+				kernel.setArg<cl::Buffer>(2, out1_Buffer);
+				kernel.setArg<cl::Buffer>(3, out2_Buffer);
 
-			cl::NDRange localSize = cl::NDRange(colBlock, rowBlock);
-			cl::NDRange globalSize = cl::NDRange(sz_pad2 * colBlock, sz_pad * rowBlock);
+				cl::NDRange localSize = cl::NDRange(colBlock, rowBlock);
+				cl::NDRange globalSize = cl::NDRange(sz_pad2 * colBlock, sz_pad * rowBlock);
 
-			m_queue.enqueueNDRangeKernel(kernel, cl::NullRange, globalSize, localSize);
-			m_queue.finish();
+				m_queue.enqueueNDRangeKernel(kernel, cl::NullRange, globalSize, localSize);
+				m_queue.finish();
 
-			cv::Mat outMat(sz_pad, sz_pad2, CV_64FC1);
-			m_queue.enqueueReadBuffer(out1_Buffer, CL_TRUE, 0, outSize * sizeof(double), outMat.data);
-			cv::Mat outMat2(sz_pad, sz_pad2, CV_64FC1);
-			m_queue.enqueueReadBuffer(out2_Buffer, CL_TRUE, 0, outSize * sizeof(double), outMat2.data);
-			dst.push_back(outMat);
-			dst.push_back(outMat2);
+				cv::Mat outMat(sz_pad, sz_pad2, CV_64FC1);
+				m_queue.enqueueReadBuffer(out1_Buffer, CL_TRUE, 0, outSize * sizeof(double), outMat.data);
+				cv::Mat outMat2(sz_pad, sz_pad2, CV_64FC1);
+				m_queue.enqueueReadBuffer(out2_Buffer, CL_TRUE, 0, outSize * sizeof(double), outMat2.data);
+				dst.push_back(outMat);
+				dst.push_back(outMat2);
 
-		}
-		catch (cl::Error error) {
-			if (error.err() == CL_BUILD_PROGRAM_FAILURE) {
-				std::cout << "Build log:" << std::endl << m_program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(m_devicesVector[0]) << std::endl;
 			}
-			throw;
+			catch (cl::Error error) {
+				if (error.err() == CL_BUILD_PROGRAM_FAILURE) {
+					std::cout << "Build log:" << std::endl << m_program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(m_devicesVector[0]) << std::endl;
+				}
+				throw;
+			}
+		}
+		else {
+			gradients[0].convertTo(gradients[0], CV_32FC1);
+			gradients[1].convertTo(gradients[1], CV_32FC1);
+
+			cl::Buffer grad1_Buffer = cl::Buffer(m_context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, gradSize * sizeof(float), (float *)gradients[0].data);
+			cl::Buffer grad2_Buffer = cl::Buffer(m_context, CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR, gradSize * sizeof(float), (float *)gradients[1].data);
+			cl::Buffer out1_Buffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, outSize * sizeof(float));
+			cl::Buffer out2_Buffer = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, outSize * sizeof(float));
+
+			try {
+				std::ostringstream tmpStringStream;
+				tmpStringStream << "-D COLBLOCK=" << colBlock << " " \
+					<< "-D ROWBLOCK=" << rowBlock << " " \
+					<< "-D ROWS=" << gradients[0].rows << " " \
+					<< "-D COLS=" << gradients[0].cols;
+
+				std::string compilerOptions = tmpStringStream.str();
+				m_program.build(m_devicesVector, compilerOptions.c_str());
+
+				cl::Kernel kernel = cl::Kernel(m_program, "grad_dist");
+
+
+				kernel.setArg<cl::Buffer>(0, grad1_Buffer);
+				kernel.setArg<cl::Buffer>(1, grad2_Buffer);
+				kernel.setArg<cl::Buffer>(2, out1_Buffer);
+				kernel.setArg<cl::Buffer>(3, out2_Buffer);
+
+				cl::NDRange localSize = cl::NDRange(colBlock, rowBlock);
+				cl::NDRange globalSize = cl::NDRange(sz_pad2 * colBlock, sz_pad * rowBlock);
+
+				m_queue.enqueueNDRangeKernel(kernel, cl::NullRange, globalSize, localSize);
+				m_queue.finish();
+
+				cv::Mat outMat(sz_pad, sz_pad2, CV_32FC1);
+				m_queue.enqueueReadBuffer(out1_Buffer, CL_TRUE, 0, outSize * sizeof(float), outMat.data);
+				cv::Mat outMat2(sz_pad, sz_pad2, CV_32FC1);
+				m_queue.enqueueReadBuffer(out2_Buffer, CL_TRUE, 0, outSize * sizeof(float), outMat2.data);
+				dst.push_back(outMat);
+				dst.push_back(outMat2);
+
+			}
+			catch (cl::Error error) {
+				if (error.err() == CL_BUILD_PROGRAM_FAILURE) {
+					std::cout << "Build log:" << std::endl << m_program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(m_devicesVector[0]) << std::endl;
+				}
+				throw;
+			}
 		}
 		return;
 

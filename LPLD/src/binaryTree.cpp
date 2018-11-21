@@ -64,7 +64,7 @@ namespace dip {
             return 0.0;
 
         while(tmpRoot->leftPtr != nullptr) {
-            double methodVal = methodsVals[tmpRoot->methodNum];
+            double methodVal = methodsVals[(tmpRoot->methodNum)-1]; //puvodni bey minus 1
             tmpRoot = (methodVal < tmpRoot->key) ? tmpRoot->leftPtr: tmpRoot->rightPtr;
         }
 

@@ -82,7 +82,7 @@ namespace dip {
 #ifdef _MSC_VER
                 std::ifstream sourceFile("src\\" + m_clSrcFileName);
 #else
-                std::ifstream sourceFile("cl/" + m_clSrcFileName);
+                std::ifstream sourceFile("src/" + m_clSrcFileName);
 #endif
 
                 std::string sourceCode(std::istreambuf_iterator<char>(sourceFile), \

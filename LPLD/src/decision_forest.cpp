@@ -55,6 +55,12 @@ namespace dip {
                 else {
                     nodesNum++;
                     int methodNum = static_cast<int>(valuesVec[5]);
+					//PATCHWORK JUST TESTING  --- REMOVE
+					if (methodNum == 12) {
+						methodNum = 10;
+					}
+
+					//endPATCHOWRK
                     int leftChildID = static_cast<int>(valuesVec[2]);
                     int rightChildID = static_cast<int>(valuesVec[3]);
                     tree->AddNode(nodeID, nodeValue, methodNum, leftChildID, rightChildID);
@@ -73,10 +79,13 @@ namespace dip {
     }
 
 
-    cv::Mat DecisionForest::predict(const std::vector<cv::Mat> &methodsResults) throw (std::runtime_error) {
-#if 0
-        std::vector<double> methodsResPtrs(methodsResults.size());
-        cv::Mat result(methodsResults.at(0).rows, methodsResults.at(0).cols, CV_64FC1);
+	cv::Mat DecisionForest::predict(const std::vector<cv::Mat> &methodsResults) throw (std::runtime_error) {
+#if 1
+		std::vector<double> methodsResPtrs(0);
+		cv::Mat result(methodsResults.at(0).rows, methodsResults.at(0).cols, CV_64FC1);
+		for (int i = 0; i < methodsResPtrs.size(); i++) {
+			
+		}
         double *resultPtr = (double *) result.data;
 
         for(int pixPos = 0; pixPos < result.rows * result.cols; pixPos++) {
